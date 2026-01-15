@@ -1,0 +1,65 @@
+# =========================
+# Secrets / Environment
+# =========================
+.env
+.env.*
+*.env
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# =========================
+# Virtual Environments
+# =========================
+venv/
+.venv/
+ENV/
+env/
+
+# =========================
+# OS / Editor junk
+# =========================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# =========================
+# Logs
+# =========================
+*.log
+
+# =========================
+# Temporary repos / workspaces
+# (created by orchestrator)
+# =========================
+deplai-repo-*/
+tmp/
+temp/
+
+# =========================
+# Scan artifacts / outputs
+# =========================
+sbom.json
+sbom-*.json
+*.sarif
+*.out
+
+# =========================
+# Node (in case of JS repos)
+# =========================
+node_modules/
+
+# =========================
+# Coverage
+# =========================
+.coverage
+htmlcov/
