@@ -1,2 +1,8 @@
-requests==2.19.0
+flask==2.2.5
+werkzeug==2.2.3
 
+requests==2.31.0
+urllib3==1.26.18
+six==1.16.0
+
+openai>=2.0.0

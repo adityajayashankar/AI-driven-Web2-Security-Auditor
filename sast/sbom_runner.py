@@ -1,41 +1,41 @@
+from pathlib import Path
 import subprocess
-import tempfile
-import os
-import json
-from typing import Dict, Any
 
 
-def generate_sbom(repo_path: str) -> Dict[str, Any]:
+class SBOMGenerationError(RuntimeError):
+    pass
+
+
+def generate_sbom(project_root: str) -> Path:
     """
-    Generate a CycloneDX SBOM for a Python project.
-
-    Returns parsed SBOM JSON.
+    Generate a CycloneDX SBOM for the Python project.
     """
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp:
-        sbom_path = tmp.name
+    sbom_path = Path(project_root) / "sbom.json"
 
     cmd = [
         "cyclonedx-py",
         "--format", "json",
-        "--output", sbom_path,
+        "--schema-version", "1.5",
+        "--outfile", str(sbom_path),
     ]
 
     try:
         subprocess.run(
             cmd,
-            cwd=repo_path,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
             check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        raise SBOMGenerationError(
+            "cyclonedx-py not found. Install with: pip install cyclonedx-bom"
+        )
+    except subprocess.CalledProcessError as e:
+        raise SBOMGenerationError(
+            f"SBOM generation failed: {e.stderr.strip()}"
         )
 
-        with open(sbom_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+    if not sbom_path.exists():
+        raise SBOMGenerationError("SBOM file was not created")
 
-    finally:
-        try:
-            os.remove(sbom_path)
-        except OSError:
-            pass
+    return sbom_path

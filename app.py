@@ -1,8 +1,17 @@
-import ssl
-import socket
+from flask import Flask, jsonify
 
-context = ssl.SSLContext(ssl.PROTOCOL_TLSv1)  # ❌ weak / deprecated TLS
+app = Flask(__name__)
 
-with socket.create_connection(("example.com", 443)) as sock:
-    with context.wrap_socket(sock, server_hostname="example.com") as ssock:
-        print(ssock.version())
+
+@app.route("/")
+def index():
+    return jsonify({"status": "ok"})
+
+
+@app.route("/health")
+def health():
+    return "healthy", 200
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=False)

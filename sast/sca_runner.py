@@ -1,63 +1,57 @@
+from pathlib import Path
 import subprocess
 import json
-import tempfile
-import os
-import sys
-from typing import Dict, Any
 
 
-def run_pip_audit(repo_path: str, timeout: int = 60) -> Dict[str, Any]:
+class SCARunnerError(RuntimeError):
+    pass
+
+
+def run_osv_scan(sbom_path: Path) -> dict:
     """
-    Run pip-audit in a production-safe, time-bounded way.
+    Execute osv-scanner against a CycloneDX SBOM.
+
+    Args:
+        sbom_path: Path to sbom.json
+
+    Returns:
+        Parsed JSON output from osv-scanner
+
+    Raises:
+        SCARunnerError on execution or parsing failure
     """
-
-    req_path = os.path.join(repo_path, "requirements.txt")
-    if not os.path.exists(req_path):
-        return {"dependencies": []}
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp:
-        output_path = tmp.name
+    if not sbom_path.exists():
+        raise SCARunnerError(f"SBOM not found at {sbom_path}")
 
     cmd = [
-        sys.executable,
-        "-m",
-        "pip_audit",
-        "-r",
-        "requirements.txt",
-        "--format",
-        "json",
-        "--output",
-        output_path,
+        "osv-scanner",
+        "--sbom", str(sbom_path),
+        "--format", "json",
     ]
 
     try:
-        proc = subprocess.run(
+        result = subprocess.run(
             cmd,
-            cwd=repo_path,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            check=True,
+            capture_output=True,
             text=True,
-            timeout=timeout,
+        )
+    except FileNotFoundError:
+        raise SCARunnerError(
+            "osv-scanner binary not found in PATH"
+        )
+    except subprocess.CalledProcessError as e:
+        raise SCARunnerError(
+            f"osv-scanner failed: {e.stderr.strip()}"
         )
 
-        # exit code 0 = no vulns
-        # exit code 1 = vulns found
-        # >=2 = execution error
-        if proc.returncode >= 2:
-            raise RuntimeError(proc.stderr.strip())
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        raise SCARunnerError(
+            f"Invalid JSON returned by osv-scanner: {str(e)}"
+        )
 
-        if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-            return {"dependencies": []}
-
-        with open(output_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-
-    finally:
-        try:
-            os.remove(output_path)
-        except OSError:
-            pass
 
 
 
