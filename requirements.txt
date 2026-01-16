@@ -1,8 +1,9 @@
-flask==2.2.5
-werkzeug==2.2.3
-
-requests==2.31.0
-urllib3==1.26.18
-six==1.16.0
-
-openai>=2.0.0
+fastapi>=0.109.0
+uvicorn>=0.27.0
+docker>=7.0.0
+pydantic>=2.8.0
+python-dotenv>=1.0.1
+sqlmodel>=0.0.16
+psycopg2-binary>=2.9.9
+requests>=2.31.0
+openai>=1.0.0

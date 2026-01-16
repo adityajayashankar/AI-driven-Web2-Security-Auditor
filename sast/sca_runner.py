@@ -56,4 +56,3 @@ def run_osv_scan(sbom_path: Path) -> dict:
 
 
 
-

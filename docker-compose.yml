@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL Database
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_USER: deplai
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: deplai_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 2. Control Plane (API)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./api:/app/api  # Live reload: changes to code reflect instantly
+      # [CRITICAL] Gives API access to Docker to spawn workers
+      - /var/run/docker.sock:/var/run/docker.sock 
+    environment:
+      - DATABASE_URL=postgresql://deplai:password@db:5432/deplai_db
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      # This allows the Worker (sibling container) to call the API
+      - HOST_URL=http://host.docker.internal:8000 
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:

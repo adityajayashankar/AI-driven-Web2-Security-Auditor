@@ -1,24 +1,40 @@
 from typing import List, Dict, Tuple
+import os
+from urllib.parse import urlparse
+
+# This was the missing import causing your error
 from sast.schema import Finding
 
 
 def issue_key(f: Finding) -> Tuple[str, str, str]:
     """
     Canonical issue identity across tools.
-
-    Groups:
-    - SAST: same rule across files
-    - SCA: same CVE across deps
-    - DAST: same vuln class across endpoints
     """
     return (f.category, f.tool, f.rule_id)
+
+
+def normalize_path(path_or_url: str) -> str:
+    """
+    Extracts the 'stem' of a path/URL for fuzzy matching.
+    http://localhost/api/login -> login
+    src/auth/login_route.py -> login
+    """
+    # Handle URLs
+    if path_or_url.startswith(("http:", "https:")):
+        parsed = urlparse(path_or_url)
+        # return the last segment of the path without extension
+        path = parsed.path.strip("/")
+        return os.path.splitext(os.path.basename(path))[0].lower()
+    
+    # Handle File Paths
+    filename = os.path.basename(path_or_url)
+    return os.path.splitext(filename)[0].lower()
 
 
 def same_vuln_family(a: Finding, b: Finding) -> bool:
     """
     Conservative vuln family match for cross-tool correlation.
     """
-
     if a.rule_id == b.rule_id:
         return True
 
@@ -26,17 +42,8 @@ def same_vuln_family(a: Finding, b: Finding) -> bool:
     b_id = b.rule_id.lower()
 
     families = [
-        "sql",
-        "xss",
-        "auth",
-        "csrf",
-        "ssrf",
-        "rce",
-        "command",
-        "deserialization",
-        "tls",
-        "cipher",
-        "crypto",
+        "sql", "xss", "auth", "csrf", "ssrf", "rce", 
+        "command", "deserialization", "tls", "cipher", "crypto"
     ]
 
     return any(f in a_id and f in b_id for f in families)
@@ -44,17 +51,20 @@ def same_vuln_family(a: Finding, b: Finding) -> bool:
 
 def same_surface(a: Finding, b: Finding) -> bool:
     """
-    Best-effort surface correlation.
-
-    SAST ↔ DAST only.
+    Fuzzy correlation between code files (SAST) and endpoints (DAST).
     """
+    # If same category (e.g. SAST vs SAST), use strict equality
+    if a.category == b.category:
+        return a.file == b.file
 
-    if a.category == "DAST" and b.category == "SAST":
-        return b.file in a.file
+    # Cross-category: Fuzzy match on "stem"
+    stem_a = normalize_path(a.file)
+    stem_b = normalize_path(b.file)
 
-    if a.category == "SAST" and b.category == "DAST":
-        return a.file in b.file
-
+    # If stems match and are not empty/generic (like "index" or "")
+    if stem_a == stem_b and len(stem_a) > 2 and stem_a != "index":
+        return True
+    
     return False
 
 
@@ -62,7 +72,6 @@ def merge_findings(primary: Finding, secondary: Finding) -> Finding:
     """
     Merge two findings into one canonical issue.
     """
-
     primary.occurrences += secondary.occurrences
 
     # Preserve evidence trail
@@ -82,11 +91,6 @@ def merge_findings(primary: Finding, secondary: Finding) -> Finding:
 def dedup_findings(findings: List[Finding]) -> List[Finding]:
     """
     Unified dedup engine across SAST, DAST, SCA.
-
-    Order:
-    1. Exact fingerprint
-    2. Issue-level (same tool + rule)
-    3. Cross-tool correlation
     """
 
     # ---------- Tier 0: exact fingerprint ----------
@@ -104,7 +108,6 @@ def dedup_findings(findings: List[Finding]) -> List[Finding]:
 
     for f in unique:
         key = issue_key(f)
-
         if key in by_issue:
             merge_findings(by_issue[key], f)
         else:
@@ -117,7 +120,6 @@ def dedup_findings(findings: List[Finding]) -> List[Finding]:
 
     for f in issues:
         merged = False
-
         for existing in final:
             if (
                 {f.category, existing.category} == {"SAST", "DAST"}
@@ -132,4 +134,3 @@ def dedup_findings(findings: List[Finding]) -> List[Finding]:
             final.append(f)
 
     return final
-

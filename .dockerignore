@@ -1,0 +1,28 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+venv/
+.venv/
+env/
+
+# Environment Secrets (CRITICAL)
+.env
+.env.*
+
+# Temporary Output
+deplai-repo-*/
+sbom.json
+*.log
+
+.git
+.venv
+__pycache__
+postgres_data
+scan_results.json

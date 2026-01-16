@@ -37,13 +37,17 @@ def resolve_repo(repo_input: str) -> tuple[str, bool]:
     """
     if repo_input.startswith("http"):
         temp_dir = tempfile.mkdtemp(prefix="deplai-repo-")
-
-        subprocess.run(
-            ["git", "clone", "--depth=1", repo_input, temp_dir],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        try:
+            subprocess.run(
+                ["git", "clone", "--depth=1", repo_input, temp_dir],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            # Clean up if clone fails
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise RuntimeError(f"Failed to clone repository: {repo_input}")
 
         return temp_dir, True
 
@@ -69,6 +73,10 @@ def run_security_checks(
     plan: Optional[ExecutionPlan] = None,
     scope: Optional[ScopePolicy] = None,
 ) -> Dict[str, Any]:
+    """
+    Orchestrates all security checks based on the provided plan.
+    Now includes fault tolerance for individual tool failures.
+    """
 
     # --------------------------------------------------------
     # 🛡️ DEFENSIVE ARG NORMALIZATION (BACKWARD COMPAT)
@@ -151,19 +159,61 @@ def run_security_checks(
     is_temp_clone = False
 
     if repo_input:
-        repo_path, is_temp_clone = resolve_repo(repo_input)
+        try:
+            repo_path, is_temp_clone = resolve_repo(repo_input)
+        except RuntimeError as e:
+             return {
+                "run_id": run_id,
+                "status": "failed",
+                "tools": [],
+                "findings": [
+                    Finding(
+                        category="SYSTEM",
+                        tool="git",
+                        rule_id="clone-failed",
+                        title="Failed to clone repository",
+                        severity="HIGH",
+                        confidence="HIGH",
+                        file="git",
+                        line_start=0,
+                        line_end=None,
+                        fingerprint=f"git:clone-error:{hash(str(e))}",
+                        occurrences=1,
+                        evidence={"error": str(e)},
+                    )
+                ],
+            }
 
     signals: List[Finding] = []
     tools_run: List[str] = []
 
     try:
         # ====================================================
-        # SAST
+        # SAST (Semgrep)
         # ====================================================
         if repo_path and plan.run_sast:
-            raw = run_semgrep(repo_path)
-            signals.extend(normalize_semgrep(raw))
-            tools_run.append("semgrep")
+            try:
+                raw = run_semgrep(repo_path)
+                signals.extend(normalize_semgrep(raw))
+                tools_run.append("semgrep")
+            except Exception as e:
+                tools_run.append("semgrep-error")
+                signals.append(
+                    Finding(
+                        category="SYSTEM",
+                        tool="semgrep",
+                        rule_id="semgrep-execution-error",
+                        title="SAST execution failed",
+                        severity="LOW",
+                        confidence="HIGH",
+                        file="semgrep",
+                        line_start=0,
+                        line_end=None,
+                        fingerprint=f"sast-error:{type(e).__name__}",
+                        occurrences=1,
+                        evidence={"error": str(e)},
+                    )
+                )
 
         # ====================================================
         # SCA (Python-only for now)
@@ -202,18 +252,20 @@ def run_security_checks(
         if plan.run_dast:
             target_url = dast_cfg.get("target_url")
             if not target_url:
-                raise ValueError(
-                    "Planner enabled DAST but input.dast.target_url is missing"
-                )
-
-            try:
-                validate_target_url(target_url, scope)
-            except ScopeViolation as e:
-                return {
-                    "run_id": run_id,
-                    "status": "blocked",
-                    "tools": tools_run,
-                    "findings": [
+                # This should ideally be caught by the planner or input validation, 
+                # but we handle it safely here.
+                signals.append(Finding(
+                     category="SYSTEM", tool="planner", rule_id="dast-missing-url",
+                     title="DAST enabled but no target URL provided", severity="LOW",
+                     confidence="HIGH", file="orchestrator", line_start=0, line_end=0,
+                     fingerprint="dast-missing-url", occurrences=1
+                ))
+            else:
+                # 1. Scope Check
+                try:
+                    validate_target_url(target_url, scope)
+                except ScopeViolation as e:
+                    signals.append(
                         Finding(
                             category="SYSTEM",
                             tool="scope",
@@ -228,15 +280,57 @@ def run_security_checks(
                             occurrences=1,
                             evidence={"error": str(e)},
                         )
-                    ],
-                }
+                    )
+                    # Block execution of DAST tools if scope fails
+                    target_url = None 
 
-            raw = run_nuclei(target_url)
-            signals.extend(normalize_nuclei(raw))
-            tools_run.append("nuclei")
+                if target_url:
+                    # 2. Nuclei (DAST)
+                    try:
+                        raw = run_nuclei(target_url)
+                        signals.extend(normalize_nuclei(raw))
+                        tools_run.append("nuclei")
+                    except Exception as e:
+                        tools_run.append("nuclei-error")
+                        signals.append(
+                            Finding(
+                                category="SYSTEM",
+                                tool="nuclei",
+                                rule_id="nuclei-execution-error",
+                                title="DAST (Nuclei) execution failed",
+                                severity="LOW",
+                                confidence="HIGH",
+                                file="nuclei",
+                                line_start=0,
+                                line_end=None,
+                                fingerprint=f"dast-nuclei-error:{type(e).__name__}",
+                                occurrences=1,
+                                evidence={"error": str(e)},
+                            )
+                        )
 
-            signals.extend(run_config_checks(target_url))
-            tools_run.append("config")
+                    # 3. Config Checks
+                    try:
+                        signals.extend(run_config_checks(target_url))
+                        tools_run.append("config")
+                    except Exception as e:
+                        tools_run.append("config-error")
+                        signals.append(
+                            Finding(
+                                category="SYSTEM",
+                                tool="config",
+                                rule_id="config-execution-error",
+                                title="Config checks failed",
+                                severity="LOW",
+                                confidence="HIGH",
+                                file="config",
+                                line_start=0,
+                                line_end=None,
+                                fingerprint=f"config-error:{type(e).__name__}",
+                                occurrences=1,
+                                evidence={"error": str(e)},
+                            )
+                        )
 
         return {
             "run_id": run_id,
@@ -246,5 +340,12 @@ def run_security_checks(
         }
 
     finally:
+        # --------------------------------------------------------
+        # CLEANUP (Crucial for temporary clones)
+        # --------------------------------------------------------
         if is_temp_clone and repo_path and os.path.exists(repo_path):
-            shutil.rmtree(repo_path, ignore_errors=True)
+            try:
+                shutil.rmtree(repo_path, ignore_errors=True)
+            except OSError:
+                # Logging this failure would be good in a real logger
+                pass
