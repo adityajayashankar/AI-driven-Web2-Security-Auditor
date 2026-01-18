@@ -2,7 +2,6 @@ import subprocess
 import tempfile
 import json
 from typing import Dict, Any, List, Optional
-import os
 
 def run_nuclei(target_url: str, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """
@@ -16,14 +15,14 @@ def run_nuclei(target_url: str, headers: Optional[Dict[str, str]] = None) -> Dic
         "-u", target_url,
         "-jsonl",
         "-severity", "low,medium,high,critical",
-        # Added specific tags to keep scan fast but useful
-        "-tags", "cves,misconfig,exposed-panels,auth",
+        # [FIX] Added 'xss,sqli,vuln' tags to catch real app vulnerabilities
+        "-tags", "cves,misconfig,exposed-panels,auth,xss,sqli,vuln",
         "-rate-limit", "150",
         "-timeout", "5",
         "-o", output_path,
     ]
 
-    # [FIX] Inject headers if provided (e.g., {"Authorization": "Bearer ..."})
+    # Inject headers if provided
     if headers:
         for key, value in headers.items():
             cmd.extend(["-H", f"{key}: {value}"])
@@ -43,6 +42,7 @@ def run_nuclei(target_url: str, headers: Optional[Dict[str, str]] = None) -> Dic
                     results.append(json.loads(line))
     finally:
         try:
+            import os
             os.remove(output_path)
         except OSError:
             pass
