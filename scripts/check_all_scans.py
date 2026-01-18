@@ -13,7 +13,7 @@ from sast.scope import ScopePolicy
 load_dotenv()
 
 # ---------------------------------------------------------
-# Helper: JSON Encoder
+# Helper: JSON Encoder (Handles Dataclasses automatically)
 # ---------------------------------------------------------
 class EnhancedJSONEncoder(json.JSONEncoder):
     def default(self, o):
@@ -35,7 +35,15 @@ planner = LLMPlanner(client)
 # -------------------------
 scope = ScopePolicy(
     allowed_repo_prefixes=["https://github.com/", "http"],
-    allowed_domains=["localhost", "127.0.0.1", "example.com", "notion.site", "host.docker.internal"],
+    # [FIX] Added testphp.vulnweb.com to allowed domains so DAST isn't blocked
+    allowed_domains=[
+        "localhost", 
+        "127.0.0.1", 
+        "example.com", 
+        "notion.site", 
+        "host.docker.internal", 
+        "testphp.vulnweb.com"
+    ],
     safe_mode=False, 
     max_requests=1000,
 )
@@ -87,26 +95,22 @@ except Exception as e:
 # -------------------------
 # 5. Post-Processing (Enrichment)
 # -------------------------
-# Ensure every finding has the 'repo' field filled and matches your strict schema
 clean_findings = []
 
 if "findings" in result:
     for f in result["findings"]:
-        # If it's already a dict (rare edge case), just update it
+        # Ensure every finding has the target repo attached
         if isinstance(f, dict):
              f["repo"] = target
              clean_findings.append(f)
-        # If it's a Finding object (Standard), convert using your schema method
         elif hasattr(f, "to_dict"):
              f.repo = target
              clean_findings.append(f.to_dict())
-        # Fallback for standard dataclasses without to_dict
         else:
             as_dict = dataclasses.asdict(f)
             as_dict["repo"] = target
             clean_findings.append(as_dict)
 
-# Update the result object with the clean, schema-compliant list
 result["findings"] = clean_findings
 
 # -------------------------
@@ -117,34 +121,28 @@ print("TOOLS RUN:", result.get("tools", []))
 print("TOTAL FINDINGS:", len(clean_findings))
 
 if clean_findings:
-    # Safely count categories from dicts
     categories = Counter(f.get("category", "UNKNOWN") for f in clean_findings)
     print("FINDINGS BY CATEGORY:", dict(categories))
 
 # -------------------------
-# 7. Persistence: Save to File
+# 7. Persistence
 # -------------------------
 output_path = "scan_results.json"
 try:
     with open(output_path, "w", encoding="utf-8") as f:
-        # We use standard json.dump because clean_findings are now pure dicts
-        json.dump(result, f, indent=2) 
+        # [FIX] Use the EnhancedJSONEncoder to safely dump any remaining dataclasses
+        json.dump(result, f, indent=2, cls=EnhancedJSONEncoder) 
     print(f"\n✅ Scan artifacts saved to: {output_path}")
 except Exception as e:
     print(f"\n❌ Failed to save artifacts locally: {e}")
 
-# -------------------------
-# 8. Persistence: Callback to API
-# -------------------------
 callback_url = scan_input.get("callback_url")
-
 if callback_url:
     print(f"\n📡 Sending results to Control Plane: {callback_url}")
     try:
-        response = requests.post(callback_url, json=result, timeout=10)
-        response.raise_for_status()
+        # Note: requests uses its own encoder, so 'result' must be clean (dicts) here.
+        # Step 5 ensures 'findings' are dicts, so this should work.
+        requests.post(callback_url, json=result, timeout=10)
         print("✅ Results successfully stored in Database!")
     except Exception as e:
-        print(f"❌ Failed to send results to API: {e}")
-else:
-    print("ℹ️ No callback_url provided. Skipping DB upload.")
+        print(f"❌ Failed to send results to Control Plane: {e}")

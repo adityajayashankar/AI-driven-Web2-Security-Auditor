@@ -46,6 +46,10 @@ def run_osv_scan(sbom_path: Path) -> dict:
         )
 
     try:
+        # OSV-Scanner output might be empty or valid JSON
+        if not result.stdout.strip():
+            return {"results": []}
+            
         return json.loads(result.stdout)
     except json.JSONDecodeError as e:
         raise SCARunnerError(

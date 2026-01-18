@@ -2,15 +2,9 @@
 
 from agents.contracts import ExecutionPlan, ScanLimits, AgentContext
 
-
 class FallbackPlanner:
     """
     Deterministic, policy-safe baseline planner.
-
-    Guarantees:
-    - Never enables scans without hard signals
-    - Never violates invariants (PRs, exposure)
-    - Provides upper-bound permissions for LLM (LLM can only reduce)
     """
 
     def plan(self, ctx: AgentContext) -> ExecutionPlan:
@@ -27,7 +21,8 @@ class FallbackPlanner:
         # -------------------------
         # Dependency analysis (SCA)
         # -------------------------
-        if ctx.dependencies:
+        # [FIX] Trigger SCA if dependencies exist OR if languages imply them
+        if ctx.dependencies or (ctx.languages and "python" in ctx.languages):
             run_sca = True
 
         # -------------------------

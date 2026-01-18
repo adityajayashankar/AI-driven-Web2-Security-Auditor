@@ -31,6 +31,8 @@ class ScanRequest(BaseModel):
     repo_url: Optional[str] = None
     dast_target: Optional[str] = None
     languages: List[str] = ["python"]
+    # [FIX] Added dependencies field so Planner knows to trigger SCA
+    dependencies: List[str] = []
 
 class ScanResponse(BaseModel):
     scan_id: str
@@ -54,12 +56,16 @@ def trigger_scan(req: ScanRequest, session: Session = Depends(get_session)):
     # Pass configuration to Worker
     host_url = os.environ.get("HOST_URL", "http://host.docker.internal:8000")
     
+    # [FIX] Heuristic: If no dependencies provided, assume languages imply dependencies
+    # This ensures the Planner sees 'dependencies' and enables SCA.
+    final_dependencies = req.dependencies if req.dependencies else req.languages
+
     worker_input = {
         "run_id": scan_id,
         "repo_path": req.repo_url or "",
         "languages": req.languages,
+        "dependencies": final_dependencies, # [FIX] Passed to worker
         "dast": {"target_url": req.dast_target} if req.dast_target else {},
-        # [CRITICAL] Tell worker where to send results
         "callback_url": f"{host_url}/scans/{scan_id}/results"
     }
 
@@ -79,7 +85,7 @@ def trigger_scan(req: ScanRequest, session: Session = Depends(get_session)):
         session.commit()
         raise HTTPException(status_code=500, detail=str(e))
 
-# [NEW] Webhook: Worker calls this when done!
+# Webhook: Worker calls this when done!
 @app.post("/scans/{scan_id}/results")
 def receive_results(scan_id: str, results: Dict, session: Session = Depends(get_session)):
     scan = session.get(Scan, scan_id)

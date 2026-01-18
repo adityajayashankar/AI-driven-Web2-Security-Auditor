@@ -7,10 +7,13 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 # 1️⃣ Install System Dependencies
+# [FIX] Added nodejs and npm for JS/TS support
 RUN apt-get update && apt-get install -y \
     git \
     curl \
     unzip \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/*
 
 # 2️⃣ Install Nuclei (DAST Tool)
@@ -20,26 +23,30 @@ RUN curl -sL https://github.com/projectdiscovery/nuclei/releases/download/v3.2.0
     rm nuclei.zip && \
     nuclei -version
 
-# 3️⃣ Set Up Application Directory
+# 3️⃣ Install OSV Scanner (Go Binary)
+RUN curl -L "https://github.com/google/osv-scanner/releases/download/v1.9.2/osv-scanner_1.9.2_linux_amd64" -o /usr/local/bin/osv-scanner && \
+    chmod +x /usr/local/bin/osv-scanner
+
+# 4️⃣ Set Up Application Directory
 WORKDIR /app
-
-# [CRITICAL] Add /app to PYTHONPATH so imports work correctly
 ENV PYTHONPATH=/app
+# 4️⃣ Install Universal SBOM Generator (cdxgen)
+# This single tool replaces cyclonedx-py and cyclonedx-npm for most use cases
+RUN npm install -g @cyclonedx/cdxgen
 
-# 4️⃣ Install Python Dependencies
+
+# 5️⃣ Install Python Dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 5️⃣ Install Security Tools (Python)
-# Removed 'pip-audit' as discussed
+# 6️⃣ Install Security Tools
+# [FIX] Python SCA tool
 RUN pip install --no-cache-dir \
     semgrep \
     cyclonedx-bom
 
-# 6️⃣ Install OSV Scanner (Go Binary)
-# This MUST be a separate RUN command
-RUN curl -L "https://github.com/google/osv-scanner/releases/download/v1.9.2/osv-scanner_1.9.2_linux_amd64" -o /usr/local/bin/osv-scanner && \
-    chmod +x /usr/local/bin/osv-scanner
+# [FIX] Node.js SCA tool (Global install)
+RUN npm install -g @cyclonedx/cyclonedx-npm
 
 # 7️⃣ Security Best Practice: Create a non-root user
 RUN useradd -m scanner && \

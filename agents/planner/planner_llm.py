@@ -17,12 +17,6 @@ class PlannerError(Exception):
 class LLMPlanner:
     """
     Production LLM-backed scan planner.
-
-    Hard guarantees:
-    - Always returns a valid ExecutionPlan
-    - Never raises LLM errors upstream
-    - Never expands privileges beyond fallback
-    - Never violates platform invariants
     """
 
     def __init__(
@@ -53,24 +47,16 @@ class LLMPlanner:
         return base_plan
 
     # ------------------------------------------------------------------
-    # LLM interaction (provider-agnostic)
+    # LLM interaction
     # ------------------------------------------------------------------
     def _invoke_llm(self, ctx: AgentContext) -> str:
         prompt = self._build_prompt(ctx)
         return self.llm.complete(prompt)
 
     # ------------------------------------------------------------------
-    # Parsing + validation (STRICT, DeepSeek-safe)
+    # Parsing + validation
     # ------------------------------------------------------------------
     def _parse_and_validate(self, raw: str) -> ExecutionPlan:
-        """
-        Extract JSON from:
-        - ```json fenced blocks
-        - or first {...} object
-
-        Required for DeepSeek / reasoning models.
-        """
-
         # 1️⃣ Prefer fenced JSON blocks
         fenced = re.search(r"```json\s*([\s\S]*?)```", raw)
         if fenced:
@@ -110,7 +96,7 @@ class LLMPlanner:
         )
 
     # ------------------------------------------------------------------
-    # Merge + clamp logic (authoritative)
+    # Merge + clamp logic
     # ------------------------------------------------------------------
     def _merge_with_fallback(
         self,
@@ -146,39 +132,49 @@ class LLMPlanner:
         )
 
     # ------------------------------------------------------------------
-    # Prompt (DeepSeek-compatible)
+    # Prompt (Context-Aware)
     # ------------------------------------------------------------------
     def _build_prompt(self, ctx: AgentContext) -> str:
+        # [FIX] Enhanced prompt with explicit dependency logic
         return f"""
 IMPORTANT:
-- Output ONLY JSON
-- NO explanations
-- NO markdown
-- NO text before or after JSON
-- If unsure, return conservative JSON
+- Output ONLY JSON.
+- NO explanations, NO markdown, NO conversational text.
+
+Role: You are an expert DevSecOps planner.
+Goal: Decide EXACTLY which security tools to run based on the context.
 
 Context:
-{ctx}
+- Languages detected: {ctx.languages}
+- Frameworks detected: {ctx.frameworks}
+- Dependency files detected: {ctx.dependencies}
+- Is Pull Request (PR): {ctx.is_pr}
+- Has Public Endpoint: {ctx.has_public_endpoint}
 
-Rules:
-- If is_pr = true → run_dast MUST be false
-- If has_public_endpoint = false → run_dast MUST be false
-- If no dependencies → run_sca SHOULD be false
-- Prefer fewer scans unless risk is clear
+Logic Guide:
+1. SAST (Static Analysis):
+   - ENABLE if ANY languages are detected (python, javascript, go, etc.).
+   - DISABLE only if no code is present.
 
-Return EXACTLY this JSON shape:
+2. SCA (Software Composition Analysis):
+   - ENABLE if dependency files exist (e.g., requirements.txt, package.json, pom.xml).
+   - ENABLE if 'dependencies' list is not empty.
+   - DISABLE if this is a pure HTML/CSS static site with no package manager.
 
+3. DAST (Dynamic Analysis):
+   - ENABLE ONLY if `has_public_endpoint` is true AND `is_pr` is false.
+   - STRICTLY DISABLE for PRs (Pull Requests) to prevent side effects.
+
+Response Schema:
 {{
-  "run_sast": true,
-  "run_sca": false,
-  "run_dast": false,
-  "reason": "short explanation",
+  "run_sast": boolean,
+  "run_sca": boolean,
+  "run_dast": boolean,
+  "reason": "One sentence explaining why tools were selected based on the Logic Guide.",
   "limits": {{
     "max_runtime_seconds": 300,
     "max_requests": 200
   }}
 }}
 """.strip()
-
-
 

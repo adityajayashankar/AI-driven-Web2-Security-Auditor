@@ -18,6 +18,7 @@ from sast.sca_runner import run_osv_scan
 from sast.normalize_sca import normalize_osv
 
 from sast.config_runner import run_config_checks
+from sast.dedup import dedup_findings 
 
 from sast.schema import Finding
 from sast.scope import (
@@ -55,13 +56,29 @@ def resolve_repo(repo_input: str) -> tuple[str, bool]:
 
 
 # ============================================================
-# Dependency detection (Python-only for now)
+# Dependency detection (Multi-language)
 # ============================================================
-def has_python_dependencies(repo_path: str) -> bool:
-    for f in ("requirements.txt", "pyproject.toml", "poetry.lock"):
-        path = os.path.join(repo_path, f)
-        if os.path.exists(path) and os.path.getsize(path) > 0:
-            return True
+def has_dependencies(repo_path: str) -> bool:
+    """
+    Checks for the existence of dependency manifest files for various languages.
+    """
+    # List of common dependency files for Python, Node, Go, Java, Rust, PHP
+    supported_files = {
+        "requirements.txt", "pyproject.toml", "poetry.lock", 
+        "package.json", "package-lock.json", "yarn.lock",
+        "go.mod", "go.sum",
+        "pom.xml", "build.gradle",
+        "Cargo.toml", "composer.json"
+    }
+    
+    # Check top-level directory only for speed
+    try:
+        for f in os.listdir(repo_path):
+            if f in supported_files:
+                return True
+    except OSError:
+        pass
+        
     return False
 
 
@@ -91,12 +108,10 @@ def run_security_checks(
     if "run_id" not in input:
         raise ValueError("run_id is required")
 
-    if "repo_path" not in input and "dast" not in input:
-        raise ValueError("Either repo_path or dast.target_url is required")
-
     run_id: str = input["run_id"]
     repo_input: Optional[str] = input.get("repo_path")
     dast_cfg: Dict[str, Any] = input.get("dast", {})
+    languages: List[str] = input.get("languages", ["python"])
 
     # --------------------------------------------------------
     # BACKWARD COMPATIBILITY (legacy / tests)
@@ -104,7 +119,7 @@ def run_security_checks(
     if plan is None:
         ctx = AgentContext(
             repo=repo_input or "",
-            languages=input.get("languages", []),
+            languages=languages,
             frameworks=input.get("frameworks", []),
             dependencies=input.get("dependencies", []),
             is_pr=input.get("is_pr", False),
@@ -193,7 +208,8 @@ def run_security_checks(
         # ====================================================
         if repo_path and plan.run_sast:
             try:
-                raw = run_semgrep(repo_path)
+                # [FIX] Pass languages to runner
+                raw = run_semgrep(repo_path, languages)
                 signals.extend(normalize_semgrep(raw))
                 tools_run.append("semgrep")
             except Exception as e:
@@ -216,10 +232,11 @@ def run_security_checks(
                 )
 
         # ====================================================
-        # SCA (Python-only for now)
+        # SCA (Universal Support)
         # ====================================================
         if repo_path and plan.run_sca:
-            if not has_python_dependencies(repo_path):
+            # [FIX] Use generic dependency checker
+            if not has_dependencies(repo_path):
                 tools_run.append("sca-skipped")
             else:
                 try:
@@ -251,9 +268,9 @@ def run_security_checks(
         # ====================================================
         if plan.run_dast:
             target_url = dast_cfg.get("target_url")
+            dast_headers = dast_cfg.get("headers", {})
+            
             if not target_url:
-                # This should ideally be caught by the planner or input validation, 
-                # but we handle it safely here.
                 signals.append(Finding(
                      category="SYSTEM", tool="planner", rule_id="dast-missing-url",
                      title="DAST enabled but no target URL provided", severity="LOW",
@@ -264,6 +281,27 @@ def run_security_checks(
                 # 1. Scope Check
                 try:
                     validate_target_url(target_url, scope)
+                    
+                    # 2. Nuclei (DAST)
+                    try:
+                        raw = run_nuclei(target_url, headers=dast_headers)
+                        signals.extend(normalize_nuclei(raw))
+                        tools_run.append("nuclei")
+                    except Exception as e:
+                        tools_run.append("nuclei-error")
+                        signals.append(Finding(
+                            category="SYSTEM", tool="nuclei", rule_id="nuclei-execution-error",
+                            title="DAST (Nuclei) failed", severity="LOW", fingerprint=f"nuclei-error:{type(e).__name__}",
+                            evidence={"error": str(e)}
+                        ))
+
+                    # 3. Config Checks
+                    try:
+                        signals.extend(run_config_checks(target_url))
+                        tools_run.append("config")
+                    except Exception as e:
+                        tools_run.append("config-error")
+
                 except ScopeViolation as e:
                     signals.append(
                         Finding(
@@ -281,71 +319,23 @@ def run_security_checks(
                             evidence={"error": str(e)},
                         )
                     )
-                    # Block execution of DAST tools if scope fails
-                    target_url = None 
 
-                if target_url:
-                    # 2. Nuclei (DAST)
-                    try:
-                        raw = run_nuclei(target_url)
-                        signals.extend(normalize_nuclei(raw))
-                        tools_run.append("nuclei")
-                    except Exception as e:
-                        tools_run.append("nuclei-error")
-                        signals.append(
-                            Finding(
-                                category="SYSTEM",
-                                tool="nuclei",
-                                rule_id="nuclei-execution-error",
-                                title="DAST (Nuclei) execution failed",
-                                severity="LOW",
-                                confidence="HIGH",
-                                file="nuclei",
-                                line_start=0,
-                                line_end=None,
-                                fingerprint=f"dast-nuclei-error:{type(e).__name__}",
-                                occurrences=1,
-                                evidence={"error": str(e)},
-                            )
-                        )
-
-                    # 3. Config Checks
-                    try:
-                        signals.extend(run_config_checks(target_url))
-                        tools_run.append("config")
-                    except Exception as e:
-                        tools_run.append("config-error")
-                        signals.append(
-                            Finding(
-                                category="SYSTEM",
-                                tool="config",
-                                rule_id="config-execution-error",
-                                title="Config checks failed",
-                                severity="LOW",
-                                confidence="HIGH",
-                                file="config",
-                                line_start=0,
-                                line_end=None,
-                                fingerprint=f"config-error:{type(e).__name__}",
-                                occurrences=1,
-                                evidence={"error": str(e)},
-                            )
-                        )
+        # [FIX] Deduplicate Findings
+        deduped_findings = dedup_findings(signals)
 
         return {
             "run_id": run_id,
             "status": "completed",
             "tools": tools_run,
-            "findings": signals,
+            "findings": deduped_findings,
         }
 
     finally:
         # --------------------------------------------------------
-        # CLEANUP (Crucial for temporary clones)
+        # CLEANUP
         # --------------------------------------------------------
         if is_temp_clone and repo_path and os.path.exists(repo_path):
             try:
                 shutil.rmtree(repo_path, ignore_errors=True)
             except OSError:
-                # Logging this failure would be good in a real logger
                 pass

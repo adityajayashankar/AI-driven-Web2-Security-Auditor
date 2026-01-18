@@ -2,27 +2,29 @@ import subprocess
 import json
 import tempfile
 import os
-from typing import Dict, Any
+from typing import Dict, Any, List
 
-
-def run_semgrep(repo_path: str) -> Dict[str, Any]:
+def run_semgrep(repo_path: str, languages: List[str] = None) -> Dict[str, Any]:
     """
-    Run Semgrep in JSON mode.
-
-    Production semantics:
-    - exit code 0 → no findings
-    - exit code 1 → findings exist (NOT an error)
-    - exit code >=2 → execution / config error
-    - empty / invalid JSON → treat as no findings
+    Run Semgrep in JSON mode with dynamic language support.
     """
+    # [FIX] Handle dynamic languages
+    if not languages:
+        languages = ["python"] # Default fallback
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp:
         output_path = tmp.name
 
+    # [FIX] Build dynamic config flags
+    config_flags = []
+    for lang in languages:
+        # Map common names to semgrep rulesets if needed, or use direct naming
+        config_flags.append(f"--config=p/{lang}")
+
     cmd = [
         "semgrep",
         "scan",
-        "--config=p/python",
+    ] + config_flags + [
         "--json",
         "--output",
         output_path,
@@ -56,7 +58,6 @@ def run_semgrep(repo_path: str) -> Dict[str, Any]:
             return json.loads(content)
 
     except json.JSONDecodeError:
-        # Treat malformed output as no findings (safe default)
         return {"results": []}
 
     finally:
@@ -64,7 +65,6 @@ def run_semgrep(repo_path: str) -> Dict[str, Any]:
             os.remove(output_path)
         except OSError:
             pass
-
 
 
 
