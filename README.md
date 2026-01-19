@@ -63,15 +63,23 @@ DeplAI is an internal **AI-native DevSecOps security auditor** that plans, runs,
 ### Prerequisites
 - Docker + Docker Compose
 - Python 3.12+
-- LLM API key (OpenRouter / OpenAI / Groq)
+- LLM API key (OpenRouter)
+- Model : google/gemma-3n-e2b-it:free
 
 ### Run
 ```bash
 git clone https://github.com/adityajayashankar/AI-driven-Web2-Security-Auditor.git
 cd AI-driven-Web2-Security-Auditor
-docker-compose up --build
-API: http://localhost:8000
 
+docker build -t deplai-worker
+$env:OPENROUTER_API_KEY ="<your key>"
+docker-compose up --build
+
+If you want to check for logs
+docker ps -a -> chose the latest docker container ID
+docker logs <container_ID>
+
+API: http://localhost:8000
 Docs: http://localhost:8000/docs
 
 Local test (no API) - not recommened 
