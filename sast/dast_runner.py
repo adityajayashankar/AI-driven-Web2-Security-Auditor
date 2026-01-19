@@ -4,59 +4,73 @@ import json
 import os
 from typing import Dict, Any, List, Optional
 
-def run_nuclei(target_url: str, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+
+def run_nuclei(
+    target_url: str,
+    headers: Optional[Dict[str, str]] = None,
+    profile: str = "ci",  # ci | deep
+) -> Dict[str, Any]:
     """
-    Run Nuclei active scan.
+    Run Nuclei DAST scan (safe by default).
     """
-    # Create a temporary file to store JSON output
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as tmp:
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
         output_path = tmp.name
 
-    # Build the Nuclei command
+    # ---- SAFE DEFAULT FLAGS (CI / PROD) ----
     cmd = [
         "nuclei",
         "-u", target_url,
         "-jsonl",
-        # Critical tags for web vulnerabilities
-        "-severity", "low,medium,high,critical",
-        "-tags", "cves,misconfig,exposed-panels,auth,xss,sqli,vuln",
-        
-        # Tuning for performance vs stability
-        "-timeout", "300", 
-        "-rate-limit", "150",
-        
-        "-disable-update-check",
         "-o", output_path,
+
+        # 🚦 SEVERITY (no low in CI)
+        "-severity", "medium,high,critical",
+
+        # 🎯 REAL WEB ISSUES ONLY
+        "-tags", "xss,sqli,auth,misconfig,exposure",
+
+        # ⚡ PERFORMANCE CONTROLS
+        "-timeout", "10",
+        "-retries", "1",
+        "-rl", "100",        # rate limit
+        "-c", "50",          # concurrency
+        "-max-host-error", "30",
+
+        "-disable-update-check",
+        "-silent",
     ]
 
-    # Add custom headers if provided (e.g. for authentication)
-    if headers:
-        for key, value in headers.items():
-            cmd.extend(["-H", f"{key}: {value}"])
+    # ---- OPTIONAL DEEP SCAN (explicit only) ----
+    if profile == "deep":
+        cmd.extend([
+            "-tags", "xss,sqli,auth,misconfig,exposure,cves",
+            "-timeout", "20",
+            "-rl", "200",
+        ])
 
-    print(f"🚀 Running Nuclei DAST on {target_url}...")
-    
-    # [FIX] Use check=False to prevent crashing on non-zero exit codes.
-    # Nuclei returns 1 if vulnerabilities are found or if targets are missing,
-    # which we want to handle gracefully, not crash.
+    # ---- AUTH HEADERS ----
+    if headers:
+        for k, v in headers.items():
+            cmd.extend(["-H", f"{k}: {v}"])
+
+    print(f"🚀 Running Nuclei ({profile}) on {target_url}...")
+
     proc = subprocess.run(
         cmd,
-        check=False,  # <--- CRITICAL FIX: Do not raise exception on exit code 1
+        check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
-        text=True
+        text=True,
     )
 
-    # Optional: Log warnings if it didn't exit cleanly (exit code 0)
-    if proc.returncode != 0:
-        print(f"⚠️ Nuclei exited with code {proc.returncode}")
-        # Print the first 200 characters of stderr to help debug connectivity issues
-        if proc.stderr:
-            print(f"   Stderr: {proc.stderr[:200]}...") 
+    if proc.returncode > 1:
+        print("⚠️ Nuclei execution issue:")
+        print(proc.stderr[:500])
 
     results: List[dict] = []
+
     try:
-        # Parse the JSON output file
         if os.path.exists(output_path):
             with open(output_path, "r", encoding="utf-8") as f:
                 for line in f:
@@ -66,14 +80,15 @@ def run_nuclei(target_url: str, headers: Optional[Dict[str, str]] = None) -> Dic
                         except json.JSONDecodeError:
                             pass
     finally:
-        # Cleanup: Ensure the temp file is removed even if parsing fails
         try:
-            if os.path.exists(output_path):
-                os.remove(output_path)
+            os.remove(output_path)
         except OSError:
             pass
 
     return {
+        "tool": "nuclei",
         "target": target_url,
+        "profile": profile,
         "results": results,
+        "count": len(results),
     }

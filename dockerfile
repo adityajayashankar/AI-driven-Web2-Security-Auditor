@@ -1,60 +1,82 @@
-# Use a lightweight Python base image
+# ------------------------------
+# Base Image
+# ------------------------------
 FROM python:3.12-slim
 
-# Prevent Python from writing pyc files to disc
+# ------------------------------
+# Python runtime safety
+# ------------------------------
 ENV PYTHONDONTWRITEBYTECODE=1
-# Prevent Python from buffering stdout and stderr
 ENV PYTHONUNBUFFERED=1
 
-# 1️⃣ Install System Dependencies
-RUN apt-get update && apt-get install -y \
+# ------------------------------
+# System dependencies (minimal + required)
+# ------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     unzip \
-    nodejs \
-    npm \
+    procps \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# 2️⃣ Install Nuclei (DAST Tool)
-# Note: Added '-o' to unzip to force overwrite
-RUN curl -sL https://github.com/projectdiscovery/nuclei/releases/download/v3.2.0/nuclei_3.2.0_linux_amd64.zip -o nuclei.zip && \
-    unzip -o nuclei.zip && \
-    mv nuclei /usr/local/bin/ && \
-    rm nuclei.zip && \
-    nuclei -version
+# ------------------------------
+# Install Nuclei (PINNED + CURRENT)
+# ------------------------------
+ENV NUCLEI_VERSION=3.6.2
 
-# Pre-download Nuclei templates
-RUN nuclei -update-templates
+RUN curl -sL https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_amd64.zip \
+    -o nuclei.zip \
+    && unzip nuclei.zip \
+    && mv nuclei /usr/local/bin/nuclei \
+    && chmod +x /usr/local/bin/nuclei \
+    && rm nuclei.zip \
+    && nuclei -version
 
-# 3️⃣ Install Syft (SBOM Generator)
-# [FIX] Replaces cdxgen. Works for Python, JS, Go, Java, etc.
-RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+# ------------------------------
+# Install Syft (SBOM)
+# ------------------------------
+RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+    | sh -s -- -b /usr/local/bin
 
-# 4️⃣ Install Grype (Vulnerability Scanner)
-# [FIX] Replaces osv-scanner. Consumes Syft SBOMs.
-RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+# ------------------------------
+# Install Grype (SCA)
+# ------------------------------
+RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
+    | sh -s -- -b /usr/local/bin
 
-# 5️⃣ Set Up Application Directory
+# ------------------------------
+# Application setup
+# ------------------------------
 WORKDIR /app
 ENV PYTHONPATH=/app
 
-# 6️⃣ Install Python Dependencies
+# ------------------------------
+# Python dependencies (cacheable layer)
+# ------------------------------
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir semgrep
 
-# 7️⃣ Install Security Tools
-# Semgrep is still needed for SAST
-RUN pip install --no-cache-dir semgrep
+# ------------------------------
+# Non-root execution (MANDATORY for scanners)
+# ------------------------------
+RUN useradd -m scanner \
+    && chown -R scanner:scanner /app
 
-# 8️⃣ Security Best Practice: Create a non-root user
-RUN useradd -m scanner && \
-    chown -R scanner:scanner /app
-
-# Switch to non-root user
 USER scanner
 
-# 9️⃣ Copy Source Code
-COPY . .
+# ------------------------------
+# Nuclei templates (as non-root)
+# ------------------------------
+RUN nuclei -update-templates
 
-# 🔟 Default Command
+# ------------------------------
+# Copy application code
+# ------------------------------
+COPY --chown=scanner:scanner . .
+
+# ------------------------------
+# Default command
+# ------------------------------
 CMD ["python", "scripts/check_all_scans.py"]
