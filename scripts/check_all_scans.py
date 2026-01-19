@@ -12,45 +12,36 @@ from sast.scope import ScopePolicy
 
 load_dotenv()
 
-# ---------------------------------------------------------
-# Helper: JSON Encoder
-# ---------------------------------------------------------
 class EnhancedJSONEncoder(json.JSONEncoder):
     def default(self, o):
         if dataclasses.is_dataclass(o):
             return dataclasses.asdict(o)
         return super().default(o)
 
-# -------------------------
 # 1. Initialize AI Planner
-# -------------------------
 client = OpenRouterClient(
     api_key=os.environ.get("OPENROUTER_API_KEY", "invalid-key-placeholder"),
     model="google/gemma-3n-e2b-it:free",
 )
 planner = LLMPlanner(client)
 
-# -------------------------
-# 2. Define Scope Policy
-# -------------------------
+# 2. Define Scope Policy [FIXED]
 scope = ScopePolicy(
     allowed_repo_prefixes=["https://github.com/", "http"],
-    # [FIX] Added testphp.vulnweb.com so DAST is permitted
     allowed_domains=[
         "localhost", 
         "127.0.0.1", 
         "example.com", 
         "notion.site", 
         "host.docker.internal", 
-        "testphp.vulnweb.com"
+        "testphp.vulnweb.com",
+        "juice-shop.herokuapp.com"  # <--- [FIX] Added this allowed domain
     ],
     safe_mode=False, 
     max_requests=1000,
 )
 
-# -------------------------
 # 3. Load Configuration
-# -------------------------
 input_env = os.environ.get("SCAN_INPUT_JSON")
 
 if input_env:
@@ -62,22 +53,18 @@ if input_env:
         exit(1)
 else:
     print("⚠️ No API input found. Using default test targets (Manual Run).")
-    # [FIX] Updated defaults to target VULNERABLE apps so you see findings
     scan_input = {
         "run_id": "manual-test",
         "repo_path": "https://github.com/juice-shop/juice-shop",
         "languages": ["javascript"],
-        "dast": {"target_url": "http://testphp.vulnweb.com"},
+        "dast": {"target_url": "https://juice-shop.herokuapp.com"},
         "dependencies": ["package.json"]
     }
 
-# Identify the target for logging
 target = scan_input.get('repo_path') or scan_input.get('dast', {}).get('target_url') or "unknown-target"
 print(f"🚀 Starting Security Scan for: {target}")
 
-# -------------------------
 # 4. Run the Security Pipeline
-# -------------------------
 try:
     result = run_with_planner(
         input=scan_input,
@@ -94,14 +81,10 @@ except Exception as e:
         "findings": []
     }
 
-# -------------------------
-# 5. Post-Processing (Enrichment)
-# -------------------------
+# 5. Post-Processing
 clean_findings = []
-
 if "findings" in result:
     for f in result["findings"]:
-        # Ensure every finding has the target repo/url attached
         if isinstance(f, dict):
              f["repo"] = target
              clean_findings.append(f)
@@ -115,9 +98,7 @@ if "findings" in result:
 
 result["findings"] = clean_findings
 
-# -------------------------
-# 6. Output Summary (Console)
-# -------------------------
+# 6. Output Summary
 print("\n=== FINAL RESULT ===")
 print("TOOLS RUN:", result.get("tools", []))
 print("TOTAL FINDINGS:", len(clean_findings))
@@ -126,13 +107,10 @@ if clean_findings:
     categories = Counter(f.get("category", "UNKNOWN") for f in clean_findings)
     print("FINDINGS BY CATEGORY:", dict(categories))
 
-# -------------------------
 # 7. Persistence
-# -------------------------
 output_path = "scan_results.json"
 try:
     with open(output_path, "w", encoding="utf-8") as f:
-        # [FIX] Use EnhancedJSONEncoder to safely dump dataclasses
         json.dump(result, f, indent=2, cls=EnhancedJSONEncoder) 
     print(f"\n✅ Scan artifacts saved to: {output_path}")
 except Exception as e:
@@ -142,7 +120,6 @@ callback_url = scan_input.get("callback_url")
 if callback_url:
     print(f"\n📡 Sending results to Control Plane: {callback_url}")
     try:
-        # requests uses its own encoder, but our findings are dicts now
         requests.post(callback_url, json=result, timeout=10)
         print("✅ Results successfully stored in Database!")
     except Exception:

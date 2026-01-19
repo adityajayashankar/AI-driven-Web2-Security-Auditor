@@ -1,17 +1,29 @@
-from typing import Dict
+from typing import Dict, Union
 from agents.contracts import AgentContext
 from agents.llm_clients.openrouter_client import OpenRouterClient
+from sast.schema import Finding
 
 class RemediationAgent:
     def __init__(self, llm_client: OpenRouterClient):
         self.llm = llm_client
 
-    def generate_fix(self, finding: Dict, ctx: AgentContext) -> str:
+    def generate_fix(self, finding: Union[Finding, Dict], ctx: AgentContext) -> str:
         """
         Asks the LLM to generate a specific code fix for a finding.
         """
-        # Safe fallback if evidence is missing
-        evidence = finding.get('evidence', {})
+        if isinstance(finding, Finding):
+            title = finding.title
+            tool = finding.tool
+            rule_id = finding.rule_id
+            file_path = finding.file
+            evidence = finding.evidence or {}
+        else:
+            title = finding.get('title')
+            tool = finding.get('tool')
+            rule_id = finding.get('rule_id')
+            file_path = finding.get('file')
+            evidence = finding.get('evidence') or {}
+
         code_snippet = evidence.get('code') or evidence.get('message') or "No snippet provided"
 
         prompt = f"""
@@ -21,13 +33,14 @@ Context:
 - Frameworks: {ctx.frameworks}
 
 Vulnerability:
-- Title: {finding.get('title')}
-- Tool: {finding.get('tool')}
-- Rule ID: {finding.get('rule_id')}
-- File: {finding.get('file')}
+- Title: {title}
+- Tool: {tool}
+- Rule ID: {rule_id}
+- File: {file_path}
 
 Code Snippet (Evidence):
 {code_snippet}
+
 
 Task:
 1. Explain WHY this is vulnerable in 1 sentence.
@@ -36,5 +49,7 @@ Task:
 
 Output format: Markdown.
 """
-        # Call the LLM
-        return self.llm.complete(prompt)
+        try:
+            return self.llm.complete(prompt)
+        except Exception as e:
+            return f"Error generating fix: {str(e)}"
