@@ -71,7 +71,7 @@ DeplAI is an internal **AI-native DevSecOps security auditor** that plans, runs,
 git clone https://github.com/adityajayashankar/AI-driven-Web2-Security-Auditor.git
 cd AI-driven-Web2-Security-Auditor
 
-docker build -t deplai-worker
+docker build -t deplai-worker .
 $env:OPENROUTER_API_KEY ="<your key>"
 docker-compose up --build
 
