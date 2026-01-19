@@ -7,7 +7,6 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 # 1️⃣ Install System Dependencies
-# [FIX] Added nodejs and npm for JS/TS support
 RUN apt-get update && apt-get install -y \
     git \
     curl \
@@ -17,46 +16,45 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # 2️⃣ Install Nuclei (DAST Tool)
+# Note: Added '-o' to unzip to force overwrite
 RUN curl -sL https://github.com/projectdiscovery/nuclei/releases/download/v3.2.0/nuclei_3.2.0_linux_amd64.zip -o nuclei.zip && \
-    unzip nuclei.zip && \
+    unzip -o nuclei.zip && \
     mv nuclei /usr/local/bin/ && \
     rm nuclei.zip && \
     nuclei -version
 
-# 3️⃣ Install OSV Scanner (Go Binary)
-RUN curl -L "https://github.com/google/osv-scanner/releases/download/v1.9.2/osv-scanner_1.9.2_linux_amd64" -o /usr/local/bin/osv-scanner && \
-    chmod +x /usr/local/bin/osv-scanner
+# Pre-download Nuclei templates
+RUN nuclei -update-templates
 
-# 4️⃣ Set Up Application Directory
+# 3️⃣ Install Syft (SBOM Generator)
+# [FIX] Replaces cdxgen. Works for Python, JS, Go, Java, etc.
+RUN curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+# 4️⃣ Install Grype (Vulnerability Scanner)
+# [FIX] Replaces osv-scanner. Consumes Syft SBOMs.
+RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+# 5️⃣ Set Up Application Directory
 WORKDIR /app
 ENV PYTHONPATH=/app
-# 4️⃣ Install Universal SBOM Generator (cdxgen)
-# This single tool replaces cyclonedx-py and cyclonedx-npm for most use cases
-RUN npm install -g @cyclonedx/cdxgen
 
-
-# 5️⃣ Install Python Dependencies
+# 6️⃣ Install Python Dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 6️⃣ Install Security Tools
-# [FIX] Python SCA tool
-RUN pip install --no-cache-dir \
-    semgrep \
-    cyclonedx-bom
+# 7️⃣ Install Security Tools
+# Semgrep is still needed for SAST
+RUN pip install --no-cache-dir semgrep
 
-# [FIX] Node.js SCA tool (Global install)
-RUN npm install -g @cyclonedx/cyclonedx-npm
-
-# 7️⃣ Security Best Practice: Create a non-root user
+# 8️⃣ Security Best Practice: Create a non-root user
 RUN useradd -m scanner && \
     chown -R scanner:scanner /app
 
 # Switch to non-root user
 USER scanner
 
-# 8️⃣ Copy Source Code
+# 9️⃣ Copy Source Code
 COPY . .
 
-# 9️⃣ Default Command
+# 🔟 Default Command
 CMD ["python", "scripts/check_all_scans.py"]

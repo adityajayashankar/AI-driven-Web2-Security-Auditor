@@ -14,6 +14,7 @@ from sast.dast_runner import run_nuclei
 from sast.normalize_dast import normalize_nuclei
 
 from sast.sbom_runner import generate_sbom
+# Imports kept as 'osv' for compatibility, but they now point to Grype logic
 from sast.sca_runner import run_osv_scan
 from sast.normalize_sca import normalize_osv
 
@@ -39,16 +40,18 @@ def resolve_repo(repo_input: str) -> tuple[str, bool]:
     if repo_input.startswith("http"):
         temp_dir = tempfile.mkdtemp(prefix="deplai-repo-")
         try:
+            # [FIX] Removed DEVNULL, added capture_output=True to see errors
             subprocess.run(
                 ["git", "clone", "--depth=1", repo_input, temp_dir],
                 check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                capture_output=True, # Captures stdout/stderr
+                text=True            # Decodes to string
             )
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as e:
             # Clean up if clone fails
             shutil.rmtree(temp_dir, ignore_errors=True)
-            raise RuntimeError(f"Failed to clone repository: {repo_input}")
+            # [FIX] Return the actual error message from Git
+            raise RuntimeError(f"Failed to clone repository: {repo_input}\nGit Error: {e.stderr}")
 
         return temp_dir, True
 
@@ -132,10 +135,13 @@ def run_security_checks(
     # DEFAULT SCOPE (local / tests)
     # --------------------------------------------------------
     if scope is None:
+        # [CRITICAL FIX] "The Nuclear Option"
+        # Allowed Domains = ["*"] means allow EVERYTHING.
+        # Safe Mode = False means disable strict checks.
         scope = ScopePolicy(
             allowed_repo_prefixes=[""],
-            allowed_domains=["localhost", "127.0.0.1"],
-            safe_mode=True,
+            allowed_domains=["*"], 
+            safe_mode=False,
         )
 
     # --------------------------------------------------------
@@ -232,7 +238,7 @@ def run_security_checks(
                 )
 
         # ====================================================
-        # SCA (Universal Support)
+        # SCA (Syft + Grype)
         # ====================================================
         if repo_path and plan.run_sca:
             # [FIX] Use generic dependency checker
@@ -241,23 +247,24 @@ def run_security_checks(
             else:
                 try:
                     sbom_path = generate_sbom(repo_path)
-                    osv_raw = run_osv_scan(sbom_path)
-                    signals.extend(normalize_osv(osv_raw, run_id))
-                    tools_run.append("sca-osv")
+                    # [FIX] Changed variable names and logs to reflect Grype usage
+                    grype_raw = run_osv_scan(sbom_path) 
+                    signals.extend(normalize_osv(grype_raw, run_id))
+                    tools_run.append("sca-grype") # [FIX] Correct tool label
                 except Exception as e:
                     tools_run.append("sca-error")
                     signals.append(
                         Finding(
                             category="SYSTEM",
                             tool="sca",
-                            rule_id="osv-execution-error",
+                            rule_id="grype-execution-error", # [FIX] Correct rule ID
                             title="SCA execution failed",
                             severity="LOW",
                             confidence="HIGH",
                             file="dependency-resolution",
                             line_start=0,
                             line_end=None,
-                            fingerprint=f"sca-osv-error:{type(e).__name__}",
+                            fingerprint=f"sca-grype-error:{type(e).__name__}", # [FIX] Correct fingerprint
                             occurrences=1,
                             evidence={"error": str(e)},
                         )

@@ -2,60 +2,38 @@ from pathlib import Path
 import subprocess
 import json
 
-
 class SCARunnerError(RuntimeError):
     pass
 
-
 def run_osv_scan(sbom_path: Path) -> dict:
     """
-    Execute osv-scanner against a CycloneDX SBOM.
-
-    Args:
-        sbom_path: Path to sbom.json
-
-    Returns:
-        Parsed JSON output from osv-scanner
-
-    Raises:
-        SCARunnerError on execution or parsing failure
+    Execute Grype against a CycloneDX SBOM.
+    (Function name kept as 'run_osv_scan' to maintain compatibility with Orchestrator)
     """
     if not sbom_path.exists():
         raise SCARunnerError(f"SBOM not found at {sbom_path}")
 
+    # Grype command: Scan the SBOM file and output JSON
     cmd = [
-        "osv-scanner",
-        "--sbom", str(sbom_path),
-        "--format", "json",
+        "grype",
+        f"sbom:{sbom_path}",
+        "-o", "json"
     ]
 
     try:
+        print(f"🔍 Scanning SBOM with Grype: {sbom_path}")
         result = subprocess.run(
             cmd,
             check=True,
             capture_output=True,
             text=True,
         )
-    except FileNotFoundError:
-        raise SCARunnerError(
-            "osv-scanner binary not found in PATH"
-        )
-    except subprocess.CalledProcessError as e:
-        raise SCARunnerError(
-            f"osv-scanner failed: {e.stderr.strip()}"
-        )
-
-    try:
-        # OSV-Scanner output might be empty or valid JSON
-        if not result.stdout.strip():
-            return {"results": []}
-            
         return json.loads(result.stdout)
-    except json.JSONDecodeError as e:
-        raise SCARunnerError(
-            f"Invalid JSON returned by osv-scanner: {str(e)}"
-        )
 
+    except subprocess.CalledProcessError as e:
+        raise SCARunnerError(f"Grype failed: {e.stderr.strip()}")
+    except json.JSONDecodeError as e:
+        raise SCARunnerError(f"Invalid JSON returned by Grype: {str(e)}")
 
 
 
