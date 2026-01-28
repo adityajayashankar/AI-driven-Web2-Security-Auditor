@@ -25,18 +25,10 @@ client = OpenRouterClient(
 )
 planner = LLMPlanner(client)
 
-# 2. Define Scope Policy [FIXED]
+# 2. Define Scope Policy
 scope = ScopePolicy(
     allowed_repo_prefixes=["https://github.com/", "http"],
-    allowed_domains=[
-        "localhost", 
-        "127.0.0.1", 
-        "example.com", 
-        "notion.site", 
-        "host.docker.internal", 
-        "testphp.vulnweb.com",
-        "juice-shop.herokuapp.com"  # <--- [FIX] Added this allowed domain
-    ],
+    allowed_domains=["*"],  # Allow all domains for flexibility
     safe_mode=False, 
     max_requests=1000,
 )
@@ -116,11 +108,24 @@ try:
 except Exception as e:
     print(f"\n❌ Failed to save artifacts locally: {e}")
 
+# 8. Send Results to Backend (Callback)
 callback_url = scan_input.get("callback_url")
+
+# 🛡️ SAFEGUARD: Ensure 'tools' is ALWAYS a list so the dashboard doesn't crash
+if "tools" in result and isinstance(result["tools"], str):
+    print(f"⚠️ Warning: 'tools' was a string ({result['tools']}). Converting to list.")
+    result["tools"] = [result["tools"]]
+
 if callback_url:
     print(f"\n📡 Sending results to Control Plane: {callback_url}")
     try:
-        requests.post(callback_url, json=result, timeout=10)
-        print("✅ Results successfully stored in Database!")
-    except Exception:
-        pass
+        response = requests.post(callback_url, json=result, timeout=30)
+        
+        if response.status_code >= 200 and response.status_code < 300:
+            print(f"✅ Results successfully stored in Database! (Status: {response.status_code})")
+        else:
+            print(f"⚠️ API received data but returned error: {response.status_code} - {response.text}")
+            
+    except Exception as e:
+        print(f"❌ FAILED to send results to API: {e}")
+        print("   (Hint: Check NEXT_PUBLIC_APP_URL in .env matches host.docker.internal)")
