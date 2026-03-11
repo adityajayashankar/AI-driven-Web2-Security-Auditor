@@ -4,6 +4,7 @@ import subprocess
 class SBOMGenerationError(RuntimeError):
     pass
 
+
 def generate_sbom(project_root: str) -> Path:
     """
     Generate a CycloneDX SBOM using Syft.
@@ -19,7 +20,7 @@ def generate_sbom(project_root: str) -> Path:
     ]
 
     try:
-        print(f"📦 Generating SBOM with Syft for: {project_root}")
+        print(f"\u1f4e6 Generating SBOM with Syft for: {project_root}")
         subprocess.run(
             cmd,
             check=True,
@@ -30,7 +31,7 @@ def generate_sbom(project_root: str) -> Path:
         
         if sbom_path.exists() and sbom_path.stat().st_size > 0:
             return sbom_path
-            
+        
     except subprocess.CalledProcessError as e:
         raise SBOMGenerationError(f"Syft failed: {e.stderr}")
     except subprocess.TimeoutExpired:

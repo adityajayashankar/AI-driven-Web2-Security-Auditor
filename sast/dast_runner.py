@@ -24,10 +24,10 @@ def run_nuclei(
         "-jsonl",
         "-o", output_path,
 
-        # 🚦 SEVERITY (no low in CI)
+        # ⚡ SEVERITY (no low in CI)
         "-severity", "medium,high,critical",
 
-        # 🎯 REAL WEB ISSUES ONLY
+        # 🔫 REAL WEB ISSUES ONLY
         "-tags", "xss,sqli,auth,misconfig,exposure",
 
         # ⚡ PERFORMANCE CONTROLS
@@ -54,7 +54,7 @@ def run_nuclei(
         for k, v in headers.items():
             cmd.extend(["-H", f"{k}: {v}"])
 
-    print(f"🚀 Running Nuclei ({profile}) on {target_url}...")
+    print(f"\u2705 Running Nuclei ({profile}) on {target_url}...")
 
     proc = subprocess.run(
         cmd,
@@ -65,7 +65,7 @@ def run_nuclei(
     )
 
     if proc.returncode > 1:
-        print("⚠️ Nuclei execution issue:")
+        print("\u26a0 Nuclei execution issue:")
         print(proc.stderr[:500])
 
     results: List[dict] = []
