@@ -2,8 +2,10 @@ from pathlib import Path
 import subprocess
 import json
 
+
 class SCARunnerError(RuntimeError):
     pass
+
 
 def run_osv_scan(sbom_path: Path) -> dict:
     """
@@ -21,7 +23,7 @@ def run_osv_scan(sbom_path: Path) -> dict:
     ]
 
     try:
-        print(f"🔍 Scanning SBOM with Grype: {sbom_path}")
+        print(f"\u2705 Scanning SBOM with Grype: {sbom_path}")
         result = subprocess.run(
             cmd,
             check=True,

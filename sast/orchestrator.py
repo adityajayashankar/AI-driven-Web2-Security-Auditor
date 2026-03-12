@@ -81,7 +81,7 @@ def has_dependencies(repo_path: str) -> bool:
                 return True
     except OSError:
         pass
-        
+    
     return False
 
 
@@ -99,7 +99,7 @@ def run_security_checks(
     """
 
     # --------------------------------------------------------
-    # 🛡️ DEFENSIVE ARG NORMALIZATION (BACKWARD COMPAT)
+    # 🔫 DEFENSIVE ARG NORMALIZATION (BACKWARD COMPAT)
     # --------------------------------------------------------
     if isinstance(plan, ScopePolicy) and scope is None:
         scope = plan

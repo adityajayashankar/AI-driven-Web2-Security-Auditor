@@ -1,8 +1,10 @@
 from pathlib import Path
 import subprocess
 
+
 class SBOMGenerationError(RuntimeError):
     pass
+
 
 def generate_sbom(project_root: str) -> Path:
     """
@@ -17,9 +19,9 @@ def generate_sbom(project_root: str) -> Path:
         f"dir:{project_root}",
         "-o", f"cyclonedx-json={sbom_path}"
     ]
-
+    
     try:
-        print(f"📦 Generating SBOM with Syft for: {project_root}")
+        print(f"\u2705 Generating SBOM with Syft for: {project_root}")
         subprocess.run(
             cmd,
             check=True,
@@ -30,7 +32,7 @@ def generate_sbom(project_root: str) -> Path:
         
         if sbom_path.exists() and sbom_path.stat().st_size > 0:
             return sbom_path
-            
+        
     except subprocess.CalledProcessError as e:
         raise SBOMGenerationError(f"Syft failed: {e.stderr}")
     except subprocess.TimeoutExpired:
