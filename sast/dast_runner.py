@@ -2,6 +2,7 @@ import subprocess
 import tempfile
 import json
 import os
+import shlex
 from typing import Dict, Any, List, Optional
 
 
@@ -20,7 +21,7 @@ def run_nuclei(
     # ---- SAFE DEFAULT FLAGS (CI / PROD) ----
     cmd = [
         "nuclei",
-        "-u", target_url,
+        "-u", shlex.quote(target_url),
         "-jsonl",
         "-o", output_path,
 

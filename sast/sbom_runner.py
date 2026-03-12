@@ -1,5 +1,6 @@
 from pathlib import Path
 import subprocess
+import shlex
 
 class SBOMGenerationError(RuntimeError):
     pass
@@ -14,7 +15,7 @@ def generate_sbom(project_root: str) -> Path:
     # Syft command: Scan directory (.) and output CycloneDX JSON
     cmd = [
         "syft",
-        f"dir:{project_root}",
+        f"dir:{shlex.quote(project_root)}",
         "-o", f"cyclonedx-json={sbom_path}"
     ]
 
