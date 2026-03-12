@@ -1,9 +1,11 @@
 from pathlib import Path
 import subprocess
 import json
+import shlex
 
 class SCARunnerError(RuntimeError):
     pass
+
 
 def run_osv_scan(sbom_path: Path) -> dict:
     """
@@ -16,12 +18,12 @@ def run_osv_scan(sbom_path: Path) -> dict:
     # Grype command: Scan the SBOM file and output JSON
     cmd = [
         "grype",
-        f"sbom:{sbom_path}",
+        f"sbom:{shlex.quote(str(sbom_path))}",
         "-o", "json"
     ]
 
     try:
-        print(f"🔍 Scanning SBOM with Grype: {sbom_path}")
+        print(f"\u1f50d Scanning SBOM with Grype: {sbom_path}")
         result = subprocess.run(
             cmd,
             check=True,
@@ -34,7 +36,3 @@ def run_osv_scan(sbom_path: Path) -> dict:
         raise SCARunnerError(f"Grype failed: {e.stderr.strip()}")
     except json.JSONDecodeError as e:
         raise SCARunnerError(f"Invalid JSON returned by Grype: {str(e)}")
-
-
-
-
