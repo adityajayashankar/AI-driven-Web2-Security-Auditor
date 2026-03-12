@@ -54,7 +54,7 @@ def run_nuclei(
         for k, v in headers.items():
             cmd.extend(["-H", f"{k}: {v}"])
 
-    print(f"✅ Running Nuclei ({profile}) on {target_url}...")
+    print(f"\u2705 Running Nuclei ({profile}) on {target_url}...")
 
     proc = subprocess.run(
         cmd,

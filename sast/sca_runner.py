@@ -36,7 +36,3 @@ def run_osv_scan(sbom_path: Path) -> dict:
         raise SCARunnerError(f"Grype failed: {e.stderr.strip()}")
     except json.JSONDecodeError as e:
         raise SCARunnerError(f"Invalid JSON returned by Grype: {str(e)}")
-
-
-
-

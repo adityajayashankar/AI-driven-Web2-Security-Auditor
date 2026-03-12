@@ -57,7 +57,6 @@ def resolve_repo(repo_input: str) -> tuple[str, bool]:
 
     return repo_input, False
 
-
 # ============================================================
 # Dependency detection (Multi-language)
 # ============================================================
@@ -83,7 +82,6 @@ def has_dependencies(repo_path: str) -> bool:
         pass
     
     return False
-
 
 # ============================================================
 # MAIN ENTRYPOINT — PLAN-DRIVEN EXECUTION
