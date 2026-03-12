@@ -3,6 +3,7 @@ import tempfile
 import subprocess
 import shutil
 import os
+import shlex
 
 from agents.contracts import ExecutionPlan, AgentContext
 from agents.planner.planner_fallback import FallbackPlanner
@@ -42,7 +43,7 @@ def resolve_repo(repo_input: str) -> tuple[str, bool]:
         try:
             # [FIX] Removed DEVNULL, added capture_output=True to see errors
             subprocess.run(
-                ["git", "clone", "--depth=1", repo_input, temp_dir],
+                ["git", "clone", "--depth=1", shlex.quote(repo_input), temp_dir],
                 check=True,
                 capture_output=True, # Captures stdout/stderr
                 text=True            # Decodes to string
@@ -56,7 +57,6 @@ def resolve_repo(repo_input: str) -> tuple[str, bool]:
         return temp_dir, True
 
     return repo_input, False
-
 
 # ============================================================
 # Dependency detection (Multi-language)
@@ -81,9 +81,8 @@ def has_dependencies(repo_path: str) -> bool:
                 return True
     except OSError:
         pass
-        
+    
     return False
-
 
 # ============================================================
 # MAIN ENTRYPOINT — PLAN-DRIVEN EXECUTION
@@ -99,7 +98,7 @@ def run_security_checks(
     """
 
     # --------------------------------------------------------
-    # 🛡️ DEFENSIVE ARG NORMALIZATION (BACKWARD COMPAT)
+    # 🔫 DEFENSIVE ARG NORMALIZATION (BACKWARD COMPAT)
     # --------------------------------------------------------
     if isinstance(plan, ScopePolicy) and scope is None:
         scope = plan
