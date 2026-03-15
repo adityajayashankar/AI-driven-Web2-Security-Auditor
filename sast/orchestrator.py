@@ -3,6 +3,7 @@ import tempfile
 import subprocess
 import shutil
 import os
+import re
 
 from agents.contracts import ExecutionPlan, AgentContext
 from agents.planner.planner_fallback import FallbackPlanner
@@ -32,12 +33,20 @@ from sast.scope import (
 # ============================================================
 # Workspace resolution (TEMP local execution adapter)
 # ============================================================
+def _sanitize_repo_url(url: str) -> str:
+    # Only allow https git URLs or specific allowed domains
+    if not re.match(r'^https://github\.com/[\w.-]+/[\w.-]+(\.git)?$', url):
+        raise ValueError("Only HTTPS GitHub URLs are allowed")
+    return url
+
+
 def resolve_repo(repo_input: str) -> tuple[str, bool]:
     """
     TEMP: Local execution adapter.
     In prod, code will already be checked out by CI.
     """
     if repo_input.startswith("http"):
+        repo_input = _sanitize_repo_url(repo_input)
         temp_dir = tempfile.mkdtemp(prefix="deplai-repo-")
         try:
             # [FIX] Removed DEVNULL, added capture_output=True to see errors
