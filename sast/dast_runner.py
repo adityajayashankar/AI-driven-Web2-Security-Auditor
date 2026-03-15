@@ -2,7 +2,22 @@ import subprocess
 import tempfile
 import json
 import os
+import re
 from typing import Dict, Any, List, Optional
+
+
+def _sanitize_url(url: str) -> str:
+    # Basic validation to prevent injection
+    if not re.match(r'^https?://[a-zA-Z0-9.-]+(:[0-9]{1,5})?(/.*)?$', url):
+        raise ValueError("Invalid target URL")
+    return url
+
+
+def _sanitize_header(key: str, value: str) -> str:
+    # Prevent newlines and other control characters
+    if any(c in key + value for c in '\r\n\x00'):
+        raise ValueError("Invalid header")
+    return f"{key}: {value}"
 
 
 def run_nuclei(
@@ -16,6 +31,9 @@ def run_nuclei(
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl") as tmp:
         output_path = tmp.name
+
+    # Sanitize inputs
+    target_url = _sanitize_url(target_url)
 
     # ---- SAFE DEFAULT FLAGS (CI / PROD) ----
     cmd = [
@@ -52,7 +70,7 @@ def run_nuclei(
     # ---- AUTH HEADERS ----
     if headers:
         for k, v in headers.items():
-            cmd.extend(["-H", f"{k}: {v}"])
+            cmd.extend(["-H", _sanitize_header(k, v)])
 
     print(f"🚀 Running Nuclei ({profile}) on {target_url}...")
 

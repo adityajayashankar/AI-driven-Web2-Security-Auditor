@@ -1,25 +1,36 @@
 from pathlib import Path
 import subprocess
+import os
 
 class SBOMGenerationError(RuntimeError):
     pass
+
+
+def _validate_path(project_root: str) -> Path:
+    path = Path(project_root).resolve()
+    # Ensure path is within allowed base directories (e.g., /tmp or /workspace)
+    if not str(path).startswith(('/tmp', '/workspace')):
+        raise ValueError("Invalid project root path")
+    return path
+
 
 def generate_sbom(project_root: str) -> Path:
     """
     Generate a CycloneDX SBOM using Syft.
     Syft is universal (Python, JS, Go, Rust, Java, etc.).
     """
-    sbom_path = Path(project_root) / "sbom.json"
+    project_path = _validate_path(project_root)
+    sbom_path = project_path / "sbom.json"
     
     # Syft command: Scan directory (.) and output CycloneDX JSON
     cmd = [
         "syft",
-        f"dir:{project_root}",
+        f"dir:{project_path}",
         "-o", f"cyclonedx-json={sbom_path}"
     ]
 
     try:
-        print(f"📦 Generating SBOM with Syft for: {project_root}")
+        print(f"📦 Generating SBOM with Syft for: {project_path}")
         subprocess.run(
             cmd,
             check=True,
